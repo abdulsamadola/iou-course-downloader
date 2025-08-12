@@ -11,6 +11,70 @@ function parseCliArg(args, name, fallback) {
   return envValue !== undefined ? envValue : fallback
 }
 
+function toBool(value, fallback = false) {
+  if (typeof value === 'boolean') return value
+  if (typeof value !== 'string') return fallback
+  const v = value.toLowerCase()
+  if (['1', 'true', 'yes', 'y'].includes(v)) return true
+  if (['0', 'false', 'no', 'n'].includes(v)) return false
+  return fallback
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function retry(fn, options = {}) {
+  const {
+    attempts = 3,
+    initialDelayMs = 1000,
+    backoffFactor = 2,
+    onError,
+  } = options
+  let lastError
+  let delay = initialDelayMs
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await fn(i)
+    } catch (err) {
+      lastError = err
+      if (typeof onError === 'function') {
+        try {
+          onError(err, i)
+        } catch (_) {}
+      }
+      if (i < attempts) await sleep(delay)
+      delay *= backoffFactor
+    }
+  }
+  throw lastError
+}
+
+async function navigateWithRetries(page, url, options = {}) {
+  const {
+    attempts = 3,
+    timeout = 90000,
+    waitUntil = 'domcontentloaded',
+  } = options
+  return retry(
+    () =>
+      page.goto(url, {
+        waitUntil,
+        timeout,
+      }),
+    {
+      attempts,
+      initialDelayMs: 1500,
+      backoffFactor: 2,
+      onError: (err, i) => {
+        console.warn(
+          `Navigation attempt ${i} failed for ${url}: ${err.message}`
+        )
+      },
+    }
+  )
+}
+
 ;(async () => {
   const args = process.argv.slice(2)
 
@@ -22,6 +86,10 @@ function parseCliArg(args, name, fallback) {
     'https://campus.iou.edu.gm/campus/course/view.php?id=316'
   )
   const lecturesRaw = parseCliArg(args, 'lectures', '[]')
+  const headlessArg = parseCliArg(args, 'headless', 'false')
+  const slowMoArg = parseCliArg(args, 'slowmo', '0')
+  const headless = toBool(headlessArg, false)
+  const slowMo = Number.isFinite(Number(slowMoArg)) ? Number(slowMoArg) : 0
 
   let lectureTitles = []
   try {
@@ -36,8 +104,10 @@ function parseCliArg(args, name, fallback) {
     }
   }
 
-  const browser = await puppeteer.launch({ headless: false })
+  const browser = await puppeteer.launch({ headless, slowMo })
   const page = await browser.newPage()
+  page.setDefaultNavigationTimeout(120000)
+  page.setDefaultTimeout(60000)
 
   // Set up download behavior
   const downloadPath = path.resolve(__dirname, 'downloads')
@@ -48,22 +118,48 @@ function parseCliArg(args, name, fallback) {
   })
 
   // Access login page
-  await page.goto('https://campus.iou.edu.gm/campus/auth/iouauth/login.php', {
-    waitUntil: 'networkidle2',
-  })
+  await navigateWithRetries(
+    page,
+    'https://campus.iou.edu.gm/campus/auth/iouauth/login.php',
+    { attempts: 3, timeout: 90000, waitUntil: 'domcontentloaded' }
+  )
 
   await page.type('input[name="username"]', username)
   await page.type('input[name="password"]', password)
-  await Promise.all([
-    page.click('button[type="submit"]'),
-    page.waitForNavigation({ waitUntil: 'networkidle2' }),
-  ])
+  // Submit and tolerate slow redirects. Race navigation with a DOM check.
+  await page.click('button[type="submit"]')
+  try {
+    await Promise.race([
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 90000 }),
+      page.waitForSelector(
+        'a[href*="courses.php"], li.section.course-section',
+        {
+          timeout: 90000,
+        }
+      ),
+    ])
+  } catch (e) {
+    console.warn(
+      'Login post-submit wait timed out; proceeding to course page...'
+    )
+  }
 
   console.log('Login successful')
 
   // Go directly to the course page
-  await page.goto(courseUrl, { waitUntil: 'networkidle2' })
+  await navigateWithRetries(page, courseUrl, {
+    attempts: 3,
+    timeout: 120000,
+    waitUntil: 'domcontentloaded',
+  })
   console.log('Opened course page:', courseUrl)
+
+  // Ensure sections are present (some pages lazy-load)
+  try {
+    await page.waitForSelector('li.section.course-section', { timeout: 90000 })
+  } catch (e) {
+    console.warn('Course sections did not appear in time; continuing anyway...')
+  }
 
   // Collect links to video pages grouped by lecture section
   const lectureVideoPages = await page.evaluate((lectureTitlesIn) => {
@@ -126,12 +222,19 @@ function parseCliArg(args, name, fallback) {
 
   for (const item of lectureVideoPages) {
     const videoPage = await browser.newPage()
+    videoPage.setDefaultNavigationTimeout(120000)
+    videoPage.setDefaultTimeout(60000)
     try {
-      await videoPage.goto(item.href, { waitUntil: 'networkidle2' })
+      await navigateWithRetries(videoPage, item.href, {
+        attempts: 3,
+        timeout: 120000,
+        waitUntil: 'domcontentloaded',
+      })
 
       // Attempt to reveal dropdown if it's hidden
       try {
         await videoPage.click('#dlLinks', { delay: 50 })
+        await videoPage.waitForSelector('a.dropdown-item', { timeout: 5000 })
       } catch (_) {
         // ignore if not clickable; links may already be visible
       }
