@@ -8,7 +8,9 @@ This tool automates login to the IOU campus, navigates to a specific course page
 
 - **Automated login** using your IOU campus credentials
 - **Target a specific course page** by URL
-- **Filter by lectures** using an array of lecture titles (e.g., `["Lecture 1", "Lecture 2"]`)
+- **Filter by lectures** using:
+  - numbers/ranges like `--lectures '5'` or `--lectures '1-5,8'`
+  - or an array/list of titles (e.g., `["Lecture 1", "Lecture 2"]`)
 - **Video page detection** under each lecture section (items of type Page with title including “Video”)
 - **HD-first extraction**: prefer “HD High Quality”, fallback to “SD Normal”
 - **Grouped output** by lecture section, written to `downloads/video-urls.txt`
@@ -42,15 +44,18 @@ You can pass credentials and inputs via command-line flags or environment variab
   - `--username` Your IOU campus username
   - `--password` Your IOU campus password
   - `--course` Full course URL (e.g., `https://campus.iou.edu.gm/campus/course/view.php?id=316`)
-  - `--lectures` JSON array or comma-separated list of lecture section titles to match
+  - `--lectures` One of: numeric/range spec (e.g., `'5'`, `'1-5,8'`), a comma list, or a JSON array of titles
 
 - **Environment variables** (alternative to flags)
   - `USERNAME`, `PASSWORD`, `COURSE`, `LECTURES`
 
 Examples for `--lectures` / `LECTURES`:
 
+- Single lecture by number: `'5'`
+- Range of lectures: `'1-5'`
+- Combo of ranges and singles: `'1-3,5,7-9'`
 - JSON array: `'["Lecture 1","Lecture 2"]'`
-- Comma list: `'Lecture 1,Lecture 2'`
+- Comma list (titles): `'Lecture 1,Lecture 2'`
 
 If `--lectures`/`LECTURES` is omitted, the script defaults to sections whose title contains “lecture”.
 
@@ -63,7 +68,7 @@ node index.js \
   --username YOUR_USER \
   --password YOUR_PASS \
   --course "https://campus.iou.edu.gm/campus/course/view.php?id=316" \
-  --lectures '["Lecture 1","Lecture 2"]'
+  --lectures '1-5'
 ```
 
 - Using environment variables:
@@ -72,7 +77,7 @@ node index.js \
 USERNAME=YOUR_USER \
 PASSWORD=YOUR_PASS \
 COURSE="https://campus.iou.edu.gm/campus/course/view.php?id=316" \
-LECTURES='["Lecture 1","Lecture 2"]' \
+LECTURES='1-5,8' \
 node index.js
 ```
 
@@ -83,8 +88,8 @@ The script currently launches Chromium in visible mode to make troubleshooting e
 ### Output
 
 - The script will print the grouped URLs and also write them to:
-  - `downloads/video-urls.txt`
-- The file format is simple:
+- `downloads/video-urls.txt`
+- The file format is simple and headers are ordered with standardized titles:
 
 ```
 # Lecture 1

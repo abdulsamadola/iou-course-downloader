@@ -91,6 +91,37 @@ async function navigateWithRetries(page, url, options = {}) {
   const headless = toBool(headlessArg, false)
   const slowMo = Number.isFinite(Number(slowMoArg)) ? Number(slowMoArg) : 0
 
+  function expandLectureSpecifiers(spec) {
+    if (typeof spec !== 'string') return []
+    const parts = spec
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean)
+    const results = []
+    for (const part of parts) {
+      const rangeMatch = part.match(/^(\d+)\s*-\s*(\d+)$/)
+      const singleMatch = part.match(/^(\d+)$/)
+      if (rangeMatch) {
+        let start = Number(rangeMatch[1])
+        let end = Number(rangeMatch[2])
+        if (Number.isFinite(start) && Number.isFinite(end)) {
+          if (start > end) [start, end] = [end, start]
+          for (let i = start; i <= end; i++) {
+            results.push(`Lecture ${i}`)
+          }
+        }
+        continue
+      }
+      if (singleMatch) {
+        const n = Number(singleMatch[1])
+        if (Number.isFinite(n)) results.push(`Lecture ${n}`)
+        continue
+      }
+      results.push(part)
+    }
+    return results
+  }
+
   let lectureTitles = []
   try {
     const parsed = JSON.parse(lecturesRaw)
@@ -98,9 +129,9 @@ async function navigateWithRetries(page, url, options = {}) {
       lectureTitles = parsed
     }
   } catch (_) {
-    // If not valid JSON, allow a comma-separated list as a fallback
+    // If not valid JSON, allow numeric, range, and comma-separated fallbacks
     if (typeof lecturesRaw === 'string' && lecturesRaw.trim().length > 0) {
-      lectureTitles = lecturesRaw.split(',').map((t) => t.trim())
+      lectureTitles = expandLectureSpecifiers(lecturesRaw)
     }
   }
 
@@ -279,10 +310,31 @@ async function navigateWithRetries(page, url, options = {}) {
   }
 
   // Output grouped URLs for download manager
-  const lines = []
+  const extractLectureNumber = (title) => {
+    if (typeof title !== 'string') return Number.NaN
+    const byKeyword = title.match(/lecture\s*(\d+)/i)
+    if (byKeyword && byKeyword[1]) return Number(byKeyword[1])
+    const anyNum = title.match(/(\d+)/)
+    return anyNum ? Number(anyNum[1]) : Number.NaN
+  }
+
+  const groups = []
   for (const [lecture, entries] of lectureToVideoUrls.entries()) {
-    lines.push(`# ${lecture}`)
-    for (const e of entries) {
+    const num = extractLectureNumber(lecture)
+    groups.push({ num, entries, original: lecture })
+  }
+  groups.sort((a, b) => {
+    const an = Number.isFinite(a.num) ? a.num : Number.POSITIVE_INFINITY
+    const bn = Number.isFinite(b.num) ? b.num : Number.POSITIVE_INFINITY
+    if (an !== bn) return an - bn
+    return a.original.localeCompare(b.original)
+  })
+
+  const lines = []
+  for (const g of groups) {
+    const header = Number.isFinite(g.num) ? `Lecture ${g.num}` : g.original
+    lines.push(`# ${header}`)
+    for (const e of g.entries) {
       lines.push(e.url)
     }
     lines.push('')
