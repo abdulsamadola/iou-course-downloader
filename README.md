@@ -9,7 +9,7 @@ This tool automates login to the IOU campus, navigates to a specific course page
 - **Automated login** using your IOU campus credentials
 - **Target a specific course page** by URL
 - **Filter by lectures** using:
-  - numbers/ranges like `--lectures '5'` or `--lectures '1-5,8'`
+  - numbers/ranges like `--lectures '5'` or `--lectures '1-5,8'` (exact numeric match; '1' will not match '10')
   - or an array/list of titles (e.g., `["Lecture 1", "Lecture 2"]`)
 - **Video page detection** under each lecture section (items of type Page with title including “Video”)
 - **HD-first extraction**: prefer “HD High Quality”, fallback to “SD Normal”
@@ -44,18 +44,18 @@ You can pass credentials and inputs via command-line flags or environment variab
   - `--username` Your IOU campus username
   - `--password` Your IOU campus password
   - `--course` Full course URL (e.g., `https://campus.iou.edu.gm/campus/course/view.php?id=316`)
-  - `--lectures` One of: numeric/range spec (e.g., `'5'`, `'1-5,8'`), a comma list, or a JSON array of titles
+- `--lectures` One of: numeric/range spec (e.g., `'5'`, `'1-5,8'`), a comma list, or a JSON array of titles
 
 - **Environment variables** (alternative to flags)
   - `USERNAME`, `PASSWORD`, `COURSE`, `LECTURES`
 
-Examples for `--lectures` / `LECTURES`:
+Examples for `--lectures` / `LECTURES` (exact numeric matching):
 
 - Single lecture by number: `'5'`
-- Range of lectures: `'1-5'`
+- Range of lectures: `'1-5'` (matches 1 through 5 only)
 - Combo of ranges and singles: `'1-3,5,7-9'`
 - JSON array: `'["Lecture 1","Lecture 2"]'`
-- Comma list (titles): `'Lecture 1,Lecture 2'`
+- Comma list (titles): `'Lecture 1,Lecture 2'` (falls back to title substring match)
 
 If `--lectures`/`LECTURES` is omitted, the script defaults to sections whose title contains “lecture”.
 
@@ -89,7 +89,7 @@ The script currently launches Chromium in visible mode to make troubleshooting e
 
 - The script will print the grouped URLs and also write them to:
 - `downloads/video-urls.txt`
-- The file format is simple and headers are ordered with standardized titles:
+ - The file format is simple and headers are ordered with standardized titles. If you select by numbers/ranges, only those exact lecture numbers are included:
 
 ```
 # Lecture 1
