@@ -156,7 +156,8 @@ async function navigateWithRetries(page, url, options = {}) {
         .split(',')
         .map((s) => Number(s.trim()))
         .filter((n) => Number.isFinite(n))
-      if (maybeNums.length > 0) lectureNumbersDirect = Array.from(new Set(maybeNums))
+      if (maybeNums.length > 0)
+        lectureNumbersDirect = Array.from(new Set(maybeNums))
     }
   }
 
@@ -172,9 +173,7 @@ async function navigateWithRetries(page, url, options = {}) {
   }
   const lectureNumbers = Array.from(
     new Set(
-      [
-        ...(Array.isArray(lectureTitles) ? lectureTitles : []),
-      ]
+      [...(Array.isArray(lectureTitles) ? lectureTitles : [])]
         .map((s) => extractNumberFromSpecifier(String(s)))
         .filter((n) => Number.isFinite(n))
     )
@@ -277,7 +276,8 @@ async function navigateWithRetries(page, url, options = {}) {
         let matchesLecture = false
         if (targetNumbers.length > 0) {
           // With numeric filters present, only exact number matches are allowed.
-          matchesLecture = Number.isFinite(sectionNumber) &&
+          matchesLecture =
+            Number.isFinite(sectionNumber) &&
             targetNumbers.includes(sectionNumber)
         } else if (targetTitles.length > 0) {
           // Fallback to title matching only when no numeric filters provided
