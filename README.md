@@ -44,6 +44,7 @@ You can pass credentials and inputs via command-line flags or environment variab
   - `--username` Your IOU campus username
   - `--password` Your IOU campus password
   - `--course` Full course URL (e.g., `https://campus.iou.edu.gm/campus/course/view.php?id=316`)
+
 - `--lectures` One of: numeric/range spec (e.g., `'5'`, `'1-5,8'`), a comma list, or a JSON array of titles
 
 - **Environment variables** (alternative to flags)
@@ -89,7 +90,7 @@ The script currently launches Chromium in visible mode to make troubleshooting e
 
 - The script will print the grouped URLs and also write them to:
 - `downloads/video-urls.txt`
- - The file format is simple and headers are ordered with standardized titles. If you select by numbers/ranges, only those exact lecture numbers are included:
+- The file format is simple and headers are ordered with standardized titles. If you select by numbers/ranges, only those exact lecture numbers are included:
 
 ```
 # Lecture 1

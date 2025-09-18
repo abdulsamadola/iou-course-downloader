@@ -123,15 +123,40 @@ async function navigateWithRetries(page, url, options = {}) {
   }
 
   let lectureTitles = []
+  let lectureNumbersDirect = []
   try {
     const parsed = JSON.parse(lecturesRaw)
     if (Array.isArray(parsed)) {
-      lectureTitles = parsed
+      const nums = parsed
+        .map((v) => (typeof v === 'number' ? v : Number(v)))
+        .filter((n) => Number.isFinite(n))
+      const strs = parsed.filter((v) => typeof v === 'string')
+      if (nums.length > 0) {
+        lectureNumbersDirect = Array.from(new Set(nums))
+        lectureTitles = lectureTitles.concat(nums.map((n) => `Lecture ${n}`))
+      }
+      if (strs.length > 0) {
+        lectureTitles = lectureTitles.concat(strs)
+      }
+      if (lectureTitles.length === 0) {
+        // Fallback: accept as-is if array not numbers/strings
+        lectureTitles = parsed
+      }
+    } else if (typeof parsed === 'number' || typeof parsed === 'string') {
+      const spec = String(parsed)
+      lectureTitles = expandLectureSpecifiers(spec)
+      const asNum = Number(spec)
+      if (Number.isFinite(asNum)) lectureNumbersDirect = [asNum]
     }
   } catch (_) {
     // If not valid JSON, allow numeric, range, and comma-separated fallbacks
     if (typeof lecturesRaw === 'string' && lecturesRaw.trim().length > 0) {
       lectureTitles = expandLectureSpecifiers(lecturesRaw)
+      const maybeNums = lecturesRaw
+        .split(',')
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n))
+      if (maybeNums.length > 0) lectureNumbersDirect = Array.from(new Set(maybeNums))
     }
   }
 
@@ -147,11 +172,15 @@ async function navigateWithRetries(page, url, options = {}) {
   }
   const lectureNumbers = Array.from(
     new Set(
-      (Array.isArray(lectureTitles) ? lectureTitles : [])
+      [
+        ...(Array.isArray(lectureTitles) ? lectureTitles : []),
+      ]
         .map((s) => extractNumberFromSpecifier(String(s)))
         .filter((n) => Number.isFinite(n))
     )
   )
+    .concat(lectureNumbersDirect.filter((n) => Number.isFinite(n)))
+    .filter((v, i, a) => a.indexOf(v) === i)
 
   const browser = await puppeteer.launch({ headless, slowMo })
   const page = await browser.newPage()
@@ -211,72 +240,79 @@ async function navigateWithRetries(page, url, options = {}) {
   }
 
   // Collect links to video pages grouped by lecture section
-  const lectureVideoPages = await page.evaluate((input) => {
-    const normalize = (s) => (s || '').toLowerCase().trim()
-    const targetTitles = (Array.isArray(input.titles) ? input.titles : [])
-      .map((t) => normalize(t))
-      .filter((t) => t.length > 0)
-    const targetNumbers = Array.isArray(input.numbers)
-      ? input.numbers.filter((n) => Number.isFinite(n))
-      : []
+  const lectureVideoPages = await page.evaluate(
+    (input) => {
+      const normalize = (s) => (s || '').toLowerCase().trim()
+      const targetTitles = (Array.isArray(input.titles) ? input.titles : [])
+        .map((t) => normalize(t))
+        .filter((t) => t.length > 0)
+      const targetNumbers = Array.isArray(input.numbers)
+        ? input.numbers.filter((n) => Number.isFinite(n))
+        : []
 
-    const sectionNodes = Array.from(
-      document.querySelectorAll('li.section.course-section')
-    )
-
-    const results = []
-
-    const extractLectureNumber = (title) => {
-      if (typeof title !== 'string') return Number.NaN
-      const byKeyword = title.match(/lectures?\s*(\d+)/i)
-      if (byKeyword && byKeyword[1]) return Number(byKeyword[1])
-      // Fallback: if the title contains the word lecture elsewhere, pick the first number
-      if (/lecture/i.test(title)) {
-        const anyNum = title.match(/(\d+)/)
-        if (anyNum) return Number(anyNum[1])
-      }
-      return Number.NaN
-    }
-
-    for (const section of sectionNodes) {
-      const titleEl = section.querySelector('h3.sectionname')
-      const sectionTitle = titleEl ? titleEl.textContent.trim() : ''
-      const sectionTitleNorm = normalize(sectionTitle)
-      const sectionNumber = extractLectureNumber(sectionTitle)
-
-      let matchesLecture = false
-      if (targetNumbers.length > 0 && Number.isFinite(sectionNumber)) {
-        matchesLecture = targetNumbers.includes(sectionNumber)
-      } else if (targetTitles.length > 0) {
-        // Fallback to title matching if no numeric spec was provided
-        matchesLecture = targetTitles.some((t) => sectionTitleNorm.includes(t))
-      } else {
-        matchesLecture = /lecture/.test(sectionTitleNorm)
-      }
-
-      if (!matchesLecture) continue
-
-      // Find "Page" type activities (video pages) within this section
-      const pageItems = Array.from(
-        section.querySelectorAll(
-          'li.activity.activity-wrapper.modtype_page a.aalink'
-        )
+      const sectionNodes = Array.from(
+        document.querySelectorAll('li.section.course-section')
       )
 
-      for (const anchor of pageItems) {
-        const href = anchor.getAttribute('href') || ''
-        const text = (anchor.textContent || '').replace(/\s+/g, ' ').trim()
+      const results = []
 
-        // Skip if not a video-related page by title
-        const isVideoTitle = /video/i.test(text)
-        if (!href || !isVideoTitle) continue
-
-        results.push({ lecture: sectionTitle, itemTitle: text, href })
+      const extractLectureNumber = (title) => {
+        if (typeof title !== 'string') return Number.NaN
+        const byKeyword = title.match(/lectures?\s*(\d+)/i)
+        if (byKeyword && byKeyword[1]) return Number(byKeyword[1])
+        // Fallback: if the title contains the word lecture elsewhere, pick the first number
+        if (/lecture/i.test(title)) {
+          const anyNum = title.match(/(\d+)/)
+          if (anyNum) return Number(anyNum[1])
+        }
+        return Number.NaN
       }
-    }
 
-    return results
-  }, { titles: lectureTitles, numbers: lectureNumbers })
+      for (const section of sectionNodes) {
+        const titleEl = section.querySelector('h3.sectionname')
+        const sectionTitle = titleEl ? titleEl.textContent.trim() : ''
+        const sectionTitleNorm = normalize(sectionTitle)
+        const sectionNumber = extractLectureNumber(sectionTitle)
+
+        let matchesLecture = false
+        if (targetNumbers.length > 0) {
+          // With numeric filters present, only exact number matches are allowed.
+          matchesLecture = Number.isFinite(sectionNumber) &&
+            targetNumbers.includes(sectionNumber)
+        } else if (targetTitles.length > 0) {
+          // Fallback to title matching only when no numeric filters provided
+          matchesLecture = targetTitles.some((t) =>
+            sectionTitleNorm.includes(t)
+          )
+        } else {
+          matchesLecture = /lecture/.test(sectionTitleNorm)
+        }
+
+        if (!matchesLecture) continue
+
+        // Find "Page" type activities (video pages) within this section
+        const pageItems = Array.from(
+          section.querySelectorAll(
+            'li.activity.activity-wrapper.modtype_page a.aalink'
+          )
+        )
+
+        for (const anchor of pageItems) {
+          const href = anchor.getAttribute('href') || ''
+          const text = (anchor.textContent || '').replace(/\s+/g, ' ').trim()
+
+          // Skip if not a video-related page by title
+          const isVideoTitle = /video/i.test(text)
+          if (!href || !isVideoTitle) continue
+
+          results.push({ lecture: sectionTitle, itemTitle: text, href })
+        }
+      }
+
+      return results
+    },
+    { titles: lectureTitles, numbers: lectureNumbers }
+  )
 
   if (!lectureVideoPages || lectureVideoPages.length === 0) {
     console.log('No matching lecture video pages found.')
